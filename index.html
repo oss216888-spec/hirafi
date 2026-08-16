@@ -1713,7 +1713,7 @@ async function loadCatalog(){
     });
     (svs || []).forEach(s => {
       if(built[s.category_id]){
-        built[s.category_id].items.push({ n: s.name, p: Number(s.price), t: s.type, w: s.warranty_days ?? 30 });
+        built[s.category_id].items.push({ id: s.id, n: s.name, p: Number(s.price), t: s.type, w: s.warranty_days ?? 30 });
       }
     });
     CATALOG = Object.keys(built).length > 0 ? built : DEMO_CATALOG;
@@ -1797,6 +1797,8 @@ function setFilter(id){
 }
 
 /* ---------------- Render: service list ---------------- */
+let currentServiceItems = [];
+
 function renderServices(){
   if(!state.currentCat) return;
   const cat = CATALOG[state.currentCat];
@@ -1808,31 +1810,32 @@ function renderServices(){
   if(query){
     items = items.filter(i => i.n.includes(query));
   }
+  currentServiceItems = items;
 
   const list = document.getElementById('service-list');
   if(items.length === 0){
     list.innerHTML = `
       <div class="no-result-prompt">
-        <p>ما لقينا خدمة تطابق "${query || 'بحثك'}"، تقدر تضيفها كخدمة مخصصة</p>
-        <button onclick="openCustomServiceModal('${query.replace(/'/g,"\\'")}')">أضف الخدمة</button>
+        <p>ما لقينا خدمة تطابق "${escapeHtml(query || 'بحثك')}"، تقدر تضيفها كخدمة مخصصة</p>
+        <button onclick="openCustomServiceModal(document.getElementById('search-input').value.trim())">أضف الخدمة</button>
       </div>
     `;
   } else {
-    list.innerHTML = items.map(item => {
-      const key = state.currentCat + '|' + item.n;
+    list.innerHTML = items.map((item, i) => {
+      const key = state.currentCat + '|' + (item.id || item.n);
       const qty = state.cart[key] ? state.cart[key].qty : 0;
       return `
         <div class="service-card">
           <div>
-            <div class="service-name">${item.n}</div>
+            <div class="service-name">${escapeHtml(item.n)}</div>
             <div class="service-price">${item.p.toFixed(1)} ريال <span class="service-warranty">ضمان شغل ${item.w ?? 30} يوم</span></div>
           </div>
           ${qty === 0
-            ? `<button class="qty-btn" onclick="changeQty('${state.currentCat}','${item.n.replace(/'/g,"\\'")}', ${item.p}, 1)">+</button>`
+            ? `<button class="qty-btn" onclick="changeQtyByIndex(${i}, 1)">+</button>`
             : `<div class="qty-controls">
-                 <button class="qty-btn minus" onclick="changeQty('${state.currentCat}','${item.n.replace(/'/g,"\\'")}', ${item.p}, -1)">−</button>
+                 <button class="qty-btn minus" onclick="changeQtyByIndex(${i}, -1)">−</button>
                  <span>${qty}</span>
-                 <button class="qty-btn" onclick="changeQty('${state.currentCat}','${item.n.replace(/'/g,"\\'")}', ${item.p}, 1)">+</button>
+                 <button class="qty-btn" onclick="changeQtyByIndex(${i}, 1)">+</button>
                </div>`
           }
         </div>
@@ -1842,12 +1845,30 @@ function renderServices(){
   updateCartUI();
 }
 
-function changeQty(cat, name, price, delta){
-  const key = cat + '|' + name;
-  if(!state.cart[key]) state.cart[key] = {cat, name, price, qty:0};
+function changeQty(cat, name, price, delta, itemId){
+  const key = cat + '|' + (itemId || name);
+  if(!state.cart[key]) state.cart[key] = {cat, name, price, qty:0, itemId: itemId || null};
   state.cart[key].qty += delta;
   if(state.cart[key].qty <= 0) delete state.cart[key];
   renderServices();
+}
+
+// نستخدمها بدل تمرير اسم الخدمة مباشرة بالـ onclick، عشان أي رمز خاص بالاسم
+// (زي علامة اقتباس مزدوجة بمقاسات مثل 24") ما يكسر الكود
+function changeQtyByIndex(i, delta){
+  const item = currentServiceItems[i];
+  if(!item) return;
+  changeQty(state.currentCat, item.n, item.p, delta, item.id);
+}
+
+// يهرّب رموز HTML الخطرة عند عرض نص جاي من قاعدة البيانات داخل الصفحة
+function escapeHtml(str){
+  if(str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 /* ---------------- Custom service bottom sheet ---------------- */
@@ -1936,31 +1957,39 @@ function renderCartItems(){
   const countEl = document.getElementById('cart-items-count');
   const card = document.getElementById('cart-items-card');
   if(!listEl) return;
-  const entries = Object.values(state.cart);
+  const entries = Object.entries(state.cart); // [key, item]
   countEl.textContent = cartCount() + ' خدمات';
   if(entries.length === 0){
     card.style.display = 'none';
     return;
   }
   card.style.display = 'block';
-  listEl.innerHTML = entries.map(item => `
+  listEl.innerHTML = entries.map(([key, item]) => `
     <div class="row-between" style="padding:10px 0; border-top:1px solid var(--border);">
       <div style="flex:1;">
-        <div class="service-name" style="max-width:100%;">${item.name}</div>
+        <div class="service-name" style="max-width:100%;">${escapeHtml(item.name)}</div>
         <div class="service-price">${item.cat === 'custom' ? 'يُحدد السعر بعد المعاينة' : (item.price*item.qty).toFixed(1) + ' ريال'}</div>
       </div>
       ${item.cat === 'custom'
-        ? `<button class="qty-btn minus" onclick="removeCartItem('${item.cat}|${item.name.replace(/'/g,"\\'")}')">
+        ? `<button class="qty-btn minus" onclick="removeCartItem('${key.replace(/'/g,"\\'")}')">
              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0-1 14a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1L6 6"/></svg>
            </button>`
         : `<div class="qty-controls">
-             <button class="qty-btn minus" onclick="changeQty('${item.cat}','${item.name.replace(/'/g,"\\'")}', ${item.price}, -1)">−</button>
+             <button class="qty-btn minus" onclick="changeQtyByKey('${key.replace(/'/g,"\\'")}', -1)">−</button>
              <span>${item.qty}</span>
-             <button class="qty-btn" onclick="changeQty('${item.cat}','${item.name.replace(/'/g,"\\'")}', ${item.price}, 1)">+</button>
+             <button class="qty-btn" onclick="changeQtyByKey('${key.replace(/'/g,"\\'")}', 1)">+</button>
            </div>`
       }
     </div>
   `).join('');
+}
+
+// نفس الأسلوب الآمن: نستخدم مفتاح السلة (اللي مضبوط أصلاً بالذاكرة) بدل إعادة تمرير
+// اسم الخدمة الخام بالـ onclick، عشان أي رمز خاص بالاسم ما يكسر الكود
+function changeQtyByKey(key, delta){
+  const item = state.cart[key];
+  if(!item) return;
+  changeQty(item.cat, item.name, item.price, delta, item.itemId);
 }
 
 function updateCartUI(){
