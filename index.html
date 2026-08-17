@@ -1198,7 +1198,7 @@
   <div class="view" id="view-cart">
     <div class="topbar">
       <div class="back-row">
-        <button class="icon-btn" onclick="showView('services')">
+        <button class="icon-btn" onclick="showView(lastViewBeforeCart)">
           <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l-6 6 6 6M4 12h16"/></svg>
         </button>
         <h2>تفاصيل الطلب</h2>
@@ -2141,7 +2141,20 @@ function renderBottomNavs(activeView){
   });
 }
 
+let lastViewBeforeCart = 'home';
+const CART_SUBVIEWS = ['cart', 'location', 'address', 'addresses', 'schedule'];
+
 function showView(name){
+  if(name === 'cart'){
+    const activeEl = document.querySelector('.view.active');
+    if(activeEl){
+      const activeName = activeEl.id.replace('view-', '');
+      // لا نحدّث "آخر صفحة" لو راجعين من صفحة فرعية تابعة للسلة نفسها (عشان ما نفقد أصل الصفحة اللي دخلنا منها أول مرة)
+      if(!CART_SUBVIEWS.includes(activeName)){
+        lastViewBeforeCart = activeName;
+      }
+    }
+  }
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-' + name).classList.add('active');
   renderBottomNavs(name);
